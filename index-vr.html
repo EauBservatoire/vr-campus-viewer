@@ -125,7 +125,7 @@ function bColor(d,mode){return mode==='conso'?consoColor(d.conso2019,MAX_B):mode
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x1a1a2e);
 scene.fog=new THREE.Fog(0x1a1a2e,2000,6000);
-const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.001,20000);
+const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.01,50000);
 const renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(devicePixelRatio);
 renderer.shadowMap.enabled=true;renderer.xr.enabled=true;
@@ -133,9 +133,9 @@ document.body.appendChild(renderer.domElement);
 const vrBtnEl=VRButton.createButton(renderer);vrBtnEl.style.display='none';document.body.appendChild(vrBtnEl);
 const controls=new OrbitControls(camera,renderer.domElement);
 controls.enableDamping=true;controls.dampingFactor=0.08;controls.maxPolarAngle=Math.PI/2.05;
-scene.add(new THREE.AmbientLight(0xffffff,0.7));
-const sun=new THREE.DirectionalLight(0xfff5e0,1.5);sun.position.set(200,400,200);sun.castShadow=true;scene.add(sun);
-const fillL=new THREE.DirectionalLight(0xaaccff,0.4);fillL.position.set(-200,100,-200);scene.add(fillL);
+scene.add(new THREE.AmbientLight(0xffffff,1.2));
+const sun=new THREE.DirectionalLight(0xfff5e0,2.0);sun.position.set(200,400,200);sun.castShadow=true;scene.add(sun);
+const fillL=new THREE.DirectionalLight(0xaaccff,0.6);fillL.position.set(-200,100,-200);scene.add(fillL);
 
 // worldGroup: holds the campus model, scaled/positioned for overview
 const worldGroup=new THREE.Group();scene.add(worldGroup);
@@ -490,7 +490,17 @@ loader.load('campus2026.glb',(gltf)=>{
   updateDesktopLegend();buildWrist();
   const btn=document.getElementById('vr-btn');
   btn.disabled=false;btn.textContent='Entrer en VR';btn.onclick=()=>vrBtnEl.click();
-  renderer.xr.addEventListener('sessionstart',()=>{controls.enabled=false;});
+  renderer.xr.addEventListener('sessionstart',()=>{
+    controls.enabled=false;
+    // Reset to overview: model scaled down, centered, visible at ~1m in front
+    vrMode='overview';
+    worldGroup.scale.setScalar(SCALE);
+    worldGroup.position.set(-modelCenter.x*SCALE,-modelCenter.y*SCALE-0.4,-modelCenter.z*SCALE-0.8);
+    cameraRig.position.set(0,0,0);
+    scene.fog=new THREE.Fog(0x1a1a2e,2000,6000);
+    document.getElementById('mode-indicator').textContent='🗺️ Vue d\'ensemble';
+    buildWrist();
+  });
   renderer.xr.addEventListener('sessionend',()=>{controls.enabled=true;if(vrMode==='pedestrian')exitPedestrian();});
   document.getElementById('loading').style.display='none';
 },undefined,()=>{document.getElementById('loading').innerHTML='<h2 style="color:#ff4444">Erreur de chargement</h2>';});
