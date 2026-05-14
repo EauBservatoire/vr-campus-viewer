@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <title>VR Test</title>
+  <style>*{margin:0;padding:0;} body{background:#1a1a2e;} canvas{display:block;}</style>
+</head>
+<body>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x222244);
+
+// Big bright cube right in front of camera
+const cube = new THREE.Mesh(
+  new THREE.BoxGeometry(0.5, 0.5, 0.5),
+  new THREE.MeshBasicMaterial({ color: 0x00ff88 })
+);
+cube.position.set(0, 0, -1);
+scene.add(cube);
+
+// Bright ambient so nothing is dark
+scene.add(new THREE.AmbientLight(0xffffff, 3));
+
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.01, 1000);
+camera.position.set(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+document.body.appendChild(VRButton.createButton(renderer));
+
+renderer.setAnimationLoop(() => {
+  cube.rotation.y += 0.01;
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
