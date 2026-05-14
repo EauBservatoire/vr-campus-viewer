@@ -124,6 +124,10 @@ function bColor(d,mode){return mode==='conso'?consoColor(d.conso2019,MAX_B):mode
 // ── SCENE ─────────────────────────────────────────────────────────────────────
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x1a1a2e);
+// Note: in WebXR, scene.background is ignored — we use a large sphere instead
+const skyGeo=new THREE.SphereGeometry(5000,16,16);
+const skyMat=new THREE.MeshBasicMaterial({color:0x1a1a2e,side:THREE.BackSide});
+scene.add(new THREE.Mesh(skyGeo,skyMat));
 scene.fog=new THREE.Fog(0x1a1a2e,2000,6000);
 const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.01,50000);
 const renderer=new THREE.WebGLRenderer({antialias:true});
@@ -178,7 +182,7 @@ const btnPrev={};
 function pressed(id,val){const p=btnPrev[id]||false;btnPrev[id]=val;return val&&!p;}
 
 // Grip state
-let gripSnap={count:0,startDist:0,startScale:1,pivot:new THREE.Vector3()};
+const MODES=['conso','etablissement','fonction'];
 function ctrlWP(c){const p=new THREE.Vector3();c.getWorldPosition(p);return p;}
 
 // Wrist panels
@@ -372,87 +376,103 @@ function teleportPedestrian(ctrl){
   }
 }
 
-// ── GAMEPAD POLLING ───────────────────────────────────────────────────────────
-const MODES=['conso','etablissement','fonction'];
+// Grip state — track per hand
+const gripState={
+  left:{down:false,pos:new THREE.Vector3()},
+  right:{down:false,pos:new THREE.Vector3()},
+  bothStartDist:0,bothStartScale:1,bothPivot:new THREE.Vector3(),bothActive:false
+};
+
 function pollGamepads(){
   const sess=renderer.xr.getSession();if(!sess)return;
+
+  let leftGP=null,rightGP=null,leftSrc=null,rightSrc=null;
   for(const src of sess.inputSources){
-    const gp=src.gamepad;if(!gp)continue;
-    const hand=src.handedness;
-    const btn=i=>gp.buttons[i];
-    const ax=gp.axes;
+    if(!src.gamepad)continue;
+    if(src.handedness==='left'){leftGP=src.gamepad;leftSrc=src;}
+    if(src.handedness==='right'){rightGP=src.gamepad;rightSrc=src;}
+  }
 
-    if(hand==='left'){
-      // X button (index 4) → cycle color mode
-      if(pressed('X',btn(4)?.pressed)){
-        currentMode=MODES[(MODES.indexOf(currentMode)+1)%3];
-        recolor();buildWrist();updateDesktopLegend();
-        document.querySelectorAll('.mode-btn').forEach((b,i)=>b.classList.toggle('active',i===MODES.indexOf(currentMode)));
-      }
-      // Y button (index 5) → select/deselect legend item
-      if(pressed('Y',btn(5)?.pressed)&&legendKeys.length>0){
-        doFilter(legendKeys[legendIdx]);
-      }
-      // Left joystick Y axis → navigate legend
-      const ly=ax[3]||0;
-      if(pressed('LJUp',ly<-0.6)){legendIdx=Math.max(0,legendIdx-1);buildWrist();}
-      if(pressed('LJDn',ly>0.6)){legendIdx=Math.min(legendKeys.length-1,legendIdx+1);buildWrist();}
+  const p0=ctrlWP(c0),p1=ctrlWP(c1);
+  const lGrip=leftGP?.buttons[1]?.pressed||false;
+  const rGrip=rightGP?.buttons[1]?.pressed||false;
 
-      // Grip (left)
-      const lg=btn(1)?.pressed||false;
-      if(!btnPrev['LGrip']&&lg){gripSnap.startPos0=ctrlWP(c0).clone();}
-      if(lg&&btnPrev['LGrip']&&vrMode==='overview'){
-        const np=ctrlWP(c0);const delta=np.clone().sub(gripSnap.startPos0).multiplyScalar(3);
-        worldGroup.position.add(delta);gripSnap.startPos0=np;
-      }
-      btnPrev['LGrip']=lg;
+  // ── LEFT HAND ──────────────────────────────────────────────────────────────
+  if(leftGP){
+    // X button (index 4) → cycle color mode
+    if(pressed('X',leftGP.buttons[4]?.pressed)){
+      currentMode=MODES[(MODES.indexOf(currentMode)+1)%3];
+      activeFilter=null;legendIdx=0;recolor();buildWrist();updateDesktopLegend();
+      document.querySelectorAll('.mode-btn').forEach((b,i)=>b.classList.toggle('active',i===MODES.indexOf(currentMode)));
     }
-
-    if(hand==='right'){
-      // A button (index 4) → select/deselect building
-      if(pressed('A',btn(4)?.pressed)){trySelectBuilding(c1);}
-      // B button (index 5) → exit pedestrian
-      if(pressed('B',btn(5)?.pressed)&&vrMode==='pedestrian'){exitPedestrian();}
-      // Right trigger (index 0) → enter pedestrian OR teleport
-      if(pressed('RTrig',btn(0)?.pressed)){
-        if(vrMode==='overview')enterPedestrian(c1);
-        else teleportPedestrian(c1);
-      }
-      // Right joystick → pan (overview) or walk (pedestrian)
-      const rx=ax[2]||0,ry=ax[3]||0;
-      if(Math.abs(rx)>0.1||Math.abs(ry)>0.1){
-        if(vrMode==='overview'){
-          worldGroup.position.x+=rx*worldGroup.scale.x*0.3;
-          worldGroup.position.z+=ry*worldGroup.scale.x*0.3;
-        } else {
-          // Walk in pedestrian mode — move relative to camera look direction
-          const dir=new THREE.Vector3();camera.getWorldDirection(dir);dir.y=0;dir.normalize();
-          const right=new THREE.Vector3().crossVectors(dir,new THREE.Vector3(0,1,0));
-          cameraRig.position.addScaledVector(dir,-ry*WALK_SPEED*0.02);
-          cameraRig.position.addScaledVector(right,rx*WALK_SPEED*0.02);
-        }
-      }
-      // Two-grip scale (right grip)
-      const rg=btn(1)?.pressed||false;
-      if(!btnPrev['RGrip']&&rg){gripSnap.startPos1=ctrlWP(c1).clone();}
-      btnPrev['RGrip']=rg;
+    // Y button (index 5) → select/deselect legend filter
+    if(pressed('Y',leftGP.buttons[5]?.pressed)&&legendKeys.length>0){
+      doFilter(legendKeys[legendIdx]);
     }
+    // Left joystick Y → navigate legend items
+    const ly=leftGP.axes[3]||0;
+    if(pressed('LJUp',ly<-0.5)){legendIdx=Math.max(0,legendIdx-1);buildWrist();}
+    if(pressed('LJDn',ly>0.5)){legendIdx=Math.min(legendKeys.length-1,legendIdx+1);buildWrist();}
+  }
 
-    // Two-grip scale
-    if(btnPrev['LGrip']&&btnPrev['RGrip']&&vrMode==='overview'){
-      const p0=ctrlWP(c0),p1=ctrlWP(c1),dist=p0.distanceTo(p1);
-      if(gripSnap.count!==2){
-        gripSnap.count=2;gripSnap.startDist=dist;gripSnap.startScale=worldGroup.scale.x;
-        gripSnap.pivot.addVectors(p0,p1).multiplyScalar(0.5);
+  // ── RIGHT HAND ─────────────────────────────────────────────────────────────
+  if(rightGP){
+    // A button (index 4) → select building
+    if(pressed('A',rightGP.buttons[4]?.pressed)){trySelectBuilding(c1);}
+    // B button (index 5) → exit pedestrian
+    if(pressed('B',rightGP.buttons[5]?.pressed)&&vrMode==='pedestrian'){exitPedestrian();}
+    // Right trigger (index 0) → enter pedestrian OR teleport
+    if(pressed('RTrig',rightGP.buttons[0]?.pressed)){
+      if(vrMode==='overview')enterPedestrian(c1);
+      else teleportPedestrian(c1);
+    }
+    // Right joystick → pan (overview) or walk (pedestrian)
+    const rx=rightGP.axes[2]||0,ry=rightGP.axes[3]||0;
+    if(Math.abs(rx)>0.15||Math.abs(ry)>0.15){
+      if(vrMode==='overview'){
+        // Pan: move worldGroup in XZ plane relative to camera
+        const s=worldGroup.scale.x*0.08;
+        worldGroup.position.x+=rx*s;
+        worldGroup.position.z+=ry*s;
       } else {
-        const ns=Math.max(0.00001,Math.min(100,gripSnap.startScale*(dist/gripSnap.startDist)));
-        // Scale around pivot
-        const before=gripSnap.pivot.clone().sub(worldGroup.position).divideScalar(worldGroup.scale.x);
-        worldGroup.scale.setScalar(ns);
-        const after=before.clone().multiplyScalar(ns).add(worldGroup.position);
-        worldGroup.position.sub(after.sub(gripSnap.pivot));
+        // Walk in pedestrian mode
+        const dir=new THREE.Vector3();camera.getWorldDirection(dir);dir.y=0;dir.normalize();
+        const right=new THREE.Vector3().crossVectors(dir,new THREE.Vector3(0,1,0));
+        cameraRig.position.addScaledVector(dir,-ry*WALK_SPEED*0.016);
+        cameraRig.position.addScaledVector(right,rx*WALK_SPEED*0.016);
       }
-    } else {gripSnap.count=0;}
+    }
+  }
+
+  // ── TWO-GRIP SCALE (both grips held) ──────────────────────────────────────
+  if(lGrip&&rGrip&&vrMode==='overview'){
+    const dist=p0.distanceTo(p1);
+    if(!gripState.bothActive){
+      gripState.bothActive=true;
+      gripState.bothStartDist=dist;
+      gripState.bothStartScale=worldGroup.scale.x;
+      gripState.bothPivot.addVectors(p0,p1).multiplyScalar(0.5);
+    } else {
+      const ns=Math.max(0.000001,Math.min(200,gripState.bothStartScale*(dist/gripState.bothStartDist)));
+      // Scale around midpoint pivot
+      const toGroup=worldGroup.position.clone().sub(gripState.bothPivot);
+      const factor=ns/worldGroup.scale.x;
+      worldGroup.position.copy(gripState.bothPivot).addScaledVector(toGroup,factor);
+      worldGroup.scale.setScalar(ns);
+    }
+  } else {
+    gripState.bothActive=false;
+
+    // ── ONE GRIP → DRAG ────────────────────────────────────────────────────
+    if(lGrip&&!rGrip&&vrMode==='overview'){
+      if(!gripState.left.down){gripState.left.down=true;gripState.left.pos.copy(p0);}
+      else{const d=p0.clone().sub(gripState.left.pos).multiplyScalar(3);worldGroup.position.add(d);gripState.left.pos.copy(p0);}
+    } else {gripState.left.down=false;}
+
+    if(rGrip&&!lGrip&&vrMode==='overview'){
+      if(!gripState.right.down){gripState.right.down=true;gripState.right.pos.copy(p1);}
+      else{const d=p1.clone().sub(gripState.right.pos).multiplyScalar(3);worldGroup.position.add(d);gripState.right.pos.copy(p1);}
+    } else {gripState.right.down=false;}
   }
 }
 
@@ -500,11 +520,10 @@ loader.load('campus2026.glb',(gltf)=>{
     controls.enabled=false;
     vrMode='overview';
     scene.fog=new THREE.Fog(0x1a1a2e,2000,6000);
-    // Place the model like a table-top: 0.6m in front, 0.5m below eye level
-    // worldGroup already has the model scaled at SCALE with position centering it at origin
-    // We just move the whole worldGroup to sit in front of the VR camera
+    // Place model like a map on a table 1.2m in front, 0.3m below eye level
+    // worldGroup is already centered at origin, just position it in view
     worldGroup.scale.setScalar(SCALE);
-    worldGroup.position.set(0, -0.5, -0.8);
+    worldGroup.position.set(0, -0.3, -1.2);
     cameraRig.position.set(0, 0, 0);
     document.getElementById('mode-indicator').textContent='🗺️ Vue d\'ensemble';
     buildWrist();
