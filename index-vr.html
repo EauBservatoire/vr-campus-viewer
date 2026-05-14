@@ -426,20 +426,21 @@ function pollGamepads(){
       if(vrMode==='overview')enterPedestrian(c1);
       else teleportPedestrian(c1);
     }
-    // Right joystick → pan (overview) or walk (pedestrian)
+    // Right joystick → pan (overview) or walk+rotate (pedestrian)
     const rx=rightGP.axes[2]||0,ry=rightGP.axes[3]||0;
     if(Math.abs(rx)>0.15||Math.abs(ry)>0.15){
       if(vrMode==='overview'){
-        // Pan: move worldGroup in XZ plane relative to camera
+        // Pan: move worldGroup in XZ plane
         const s=worldGroup.scale.x*0.08;
         worldGroup.position.x+=rx*s;
         worldGroup.position.z+=ry*s;
       } else {
-        // Walk in pedestrian mode
+        // Walk forward/back with joystick Y, rotate with joystick X
         const dir=new THREE.Vector3();camera.getWorldDirection(dir);dir.y=0;dir.normalize();
         const right=new THREE.Vector3().crossVectors(dir,new THREE.Vector3(0,1,0));
         cameraRig.position.addScaledVector(dir,-ry*WALK_SPEED*0.016);
-        cameraRig.position.addScaledVector(right,rx*WALK_SPEED*0.016);
+        // Rotate cameraRig around Y for turning
+        cameraRig.rotateY(-rx*0.03);
       }
     }
   }
@@ -466,12 +467,26 @@ function pollGamepads(){
     // ── ONE GRIP → DRAG ────────────────────────────────────────────────────
     if(lGrip&&!rGrip&&vrMode==='overview'){
       if(!gripState.left.down){gripState.left.down=true;gripState.left.pos.copy(p0);}
-      else{const d=p0.clone().sub(gripState.left.pos).multiplyScalar(3);worldGroup.position.add(d);gripState.left.pos.copy(p0);}
+      else{
+        const d=p0.clone().sub(gripState.left.pos);
+        // Horizontal movement → rotate around Y axis
+        worldGroup.rotateY(d.x*3);
+        // Vertical movement → drag up/down
+        worldGroup.position.y+=d.y*3;
+        gripState.left.pos.copy(p0);
+      }
     } else {gripState.left.down=false;}
 
     if(rGrip&&!lGrip&&vrMode==='overview'){
       if(!gripState.right.down){gripState.right.down=true;gripState.right.pos.copy(p1);}
-      else{const d=p1.clone().sub(gripState.right.pos).multiplyScalar(3);worldGroup.position.add(d);gripState.right.pos.copy(p1);}
+      else{
+        const d=p1.clone().sub(gripState.right.pos);
+        // Horizontal movement → rotate around Y axis
+        worldGroup.rotateY(d.x*3);
+        // Vertical movement → drag up/down
+        worldGroup.position.y+=d.y*3;
+        gripState.right.pos.copy(p1);
+      }
     } else {gripState.right.down=false;}
   }
 }
